@@ -7,8 +7,8 @@ on:
     branches: [ main, master ]
 
 jobs:
-  build-dotnet:
-    name: Build and Test (.NET 8)
+  build-and-unit-test:
+    name: Build and Unit Test (.NET 8)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -28,8 +28,35 @@ jobs:
     - name: Build
       run: dotnet build --no-restore --configuration Release
 
-    - name: Test
-      run: dotnet test --no-build --configuration Release --verbosity normal
+    - name: Unit Tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --filter "Category!=Integration"
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build-and-unit-test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Integration Tests
+      env:
+        CHALK_CLIENT_ID: ${{ secrets.CHALK_CLIENT_ID }}
+        CHALK_CLIENT_SECRET: ${{ secrets.CHALK_CLIENT_SECRET }}
+        CHALK_ACTIVE_ENVIRONMENT: ${{ secrets.CHALK_ACTIVE_ENVIRONMENT }}
+        CHALK_API_SERVER: ${{ secrets.CHALK_API_SERVER }}
+      run: dotnet test --no-build --configuration Release --verbosity normal --filter "Category=Integration"
 
   build-mono:
     name: Build and Test (Mono)
@@ -64,9 +91,10 @@ jobs:
         # Install NUnit console runner
         nuget install NUnit.ConsoleRunner -Version 3.16.3 -OutputDirectory ./tools
 
-        # Run tests using Mono
+        # Run tests using Mono (unit tests only)
         mono ./tools/NUnit.ConsoleRunner.3.16.3/tools/nunit3-console.exe \
           ./publish-tests/Chalk.Client.Tests.dll \
+          --where "cat!=Integration" \
           --result=TestResult.xml
 
     - name: Upload test results
