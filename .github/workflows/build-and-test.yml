@@ -83,8 +83,8 @@ jobs:
 
     - name: Publish for Mono
       run: |
-        dotnet publish Chalk.Client/Chalk.Client.csproj -c Release -o ./publish
-        dotnet publish Chalk.Client.Tests/Chalk.Client.Tests.csproj -c Release -o ./publish-tests
+        dotnet publish Chalk.Client/Chalk.Client.csproj -c Release -f net8.0 -o ./publish
+        dotnet publish Chalk.Client.Tests/Chalk.Client.Tests.csproj -c Release -f net8.0 -o ./publish-tests
 
     - name: Run tests with Mono
       run: |
