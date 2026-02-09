@@ -1,0 +1,77 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-dotnet:
+    name: Build and Test (.NET 8)
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Test
+      run: dotnet test --no-build --configuration Release --verbosity normal
+
+  build-mono:
+    name: Build and Test (Mono)
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Mono
+      run: |
+        brew install mono
+        mono --version
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build
+      run: dotnet build --no-restore --configuration Release
+
+    - name: Publish for Mono
+      run: |
+        dotnet publish Chalk.Client/Chalk.Client.csproj -c Release -o ./publish
+        dotnet publish Chalk.Client.Tests/Chalk.Client.Tests.csproj -c Release -o ./publish-tests
+
+    - name: Run tests with Mono
+      run: |
+        # Install NUnit console runner
+        nuget install NUnit.ConsoleRunner -Version 3.16.3 -OutputDirectory ./tools
+
+        # Run tests using Mono
+        mono ./tools/NUnit.ConsoleRunner.3.16.3/tools/nunit3-console.exe \
+          ./publish-tests/Chalk.Client.Tests.dll \
+          --result=TestResult.xml
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: mono-test-results
+        path: TestResult.xml

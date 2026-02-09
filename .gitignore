@@ -1,0 +1,64 @@
+# Build results
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# .NET specific
+*.user
+*.rsuser
+*.suo
+*.sln.docstates
+*.userprefs
+
+# Build Results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+
+# Visual Studio
+.vs/
+*.csproj.user
+*.unityproj
+*.sln.iml
+.idea/
+*.suo
+*.cache
+*.pidb
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Test results
+TestResults/
+*.trx
+*.coveragexml
+coverage*.json
+coverage*.xml
+*.coverage
+
+# Rider
+.idea/
+
+# macOS
+.DS_Store
+
+# Publish output
+publish/
+publish-tests/
+
+# Tools downloaded during build
+tools/
