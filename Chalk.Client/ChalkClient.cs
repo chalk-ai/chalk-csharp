@@ -2,6 +2,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using Chalk.Config;
 using Chalk.Exceptions;
+using Chalk.Internal;
 using Chalk.Models;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
@@ -113,6 +114,10 @@ public class ChalkClient : IChalkClient
         }
     }
 
+    // ----------------------------------------------------------------
+    // Online Query
+    // ----------------------------------------------------------------
+
     public async Task<OnlineQueryResult> OnlineQueryAsync(OnlineQueryParams queryParams, CancellationToken cancellationToken = default)
     {
         await RefreshJwtAsync(false, cancellationToken);
@@ -166,6 +171,356 @@ public class ChalkClient : IChalkClient
         return OnlineQueryAsync(queryParams).GetAwaiter().GetResult();
     }
 
+    // ----------------------------------------------------------------
+    // Offline Query
+    // ----------------------------------------------------------------
+
+    public async Task<OfflineQueryResult> OfflineQueryAsync(OfflineQueryParams queryParams, CancellationToken cancellationToken = default)
+    {
+        await RefreshJwtAsync(false, cancellationToken);
+
+        var jsonBody = JsonConvert.SerializeObject(queryParams, JsonSettings);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, GetApiServerUri("/v4/offline_query"))
+        {
+            Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
+        };
+
+        AddHeaders(request, branch: queryParams.Branch, queryName: queryParams.QueryName);
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            await RefreshJwtAsync(true, cancellationToken);
+            request = new HttpRequestMessage(HttpMethod.Post, GetApiServerUri("/v4/offline_query"))
+            {
+                Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
+            };
+            AddHeaders(request, branch: queryParams.Branch, queryName: queryParams.QueryName);
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw ParseHttpException(response.StatusCode, responseBody);
+        }
+
+        var result = JsonConvert.DeserializeObject<OfflineQueryResult>(responseBody, JsonSettings);
+        if (result == null)
+        {
+            throw new ClientException("Failed to parse offline query response");
+        }
+
+        return result;
+    }
+
+    public OfflineQueryResult OfflineQuery(OfflineQueryParams queryParams)
+    {
+        return OfflineQueryAsync(queryParams).GetAwaiter().GetResult();
+    }
+
+    public async Task<OfflineQueryStatusResult> GetOfflineQueryStatusAsync(string revisionId, CancellationToken cancellationToken = default)
+    {
+        await RefreshJwtAsync(false, cancellationToken);
+
+        var request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v4/offline_query/{revisionId}/status"));
+        AddHeaders(request);
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            await RefreshJwtAsync(true, cancellationToken);
+            request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v4/offline_query/{revisionId}/status"));
+            AddHeaders(request);
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw ParseHttpException(response.StatusCode, responseBody);
+        }
+
+        var result = JsonConvert.DeserializeObject<OfflineQueryStatusResult>(responseBody, JsonSettings);
+        if (result == null)
+        {
+            throw new ClientException("Failed to parse offline query status response");
+        }
+
+        return result;
+    }
+
+    public async Task<OfflineQueryResult> WaitForOfflineQueryAsync(OfflineQueryResult result, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        var revisionId = result.Revisions?.FirstOrDefault()?.RevisionId
+                         ?? result.DatasetRevisionId;
+
+        if (string.IsNullOrEmpty(revisionId))
+        {
+            throw new ClientException("No revision ID found in offline query result");
+        }
+
+        var deadline = timeout.HasValue ? DateTimeOffset.UtcNow.Add(timeout.Value) : (DateTimeOffset?)null;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (deadline.HasValue && DateTimeOffset.UtcNow >= deadline.Value)
+            {
+                throw new ClientException($"Timed out waiting for offline query {revisionId}");
+            }
+
+            var status = await GetOfflineQueryStatusAsync(revisionId, cancellationToken);
+            var statusStr = status.Report?.Status?.ToLowerInvariant();
+
+            if (statusStr is "succeeded" or "failed" or "cancelled")
+            {
+                if (statusStr == "failed")
+                {
+                    var errorMsg = status.Report?.Error ?? "Unknown error";
+                    throw new ClientException($"Offline query {revisionId} failed: {errorMsg}");
+                }
+
+                return result;
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+    }
+
+    public async Task<List<string>> GetOfflineQueryDownloadUrlsAsync(OfflineQueryResult result, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        var revisionId = result.Revisions?.FirstOrDefault()?.RevisionId
+                         ?? result.DatasetRevisionId;
+
+        if (string.IsNullOrEmpty(revisionId))
+        {
+            throw new ClientException("No revision ID found in offline query result");
+        }
+
+        var deadline = timeout.HasValue ? DateTimeOffset.UtcNow.Add(timeout.Value) : (DateTimeOffset?)null;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (deadline.HasValue && DateTimeOffset.UtcNow >= deadline.Value)
+            {
+                throw new ClientException($"Timed out waiting for offline query download URLs for {revisionId}");
+            }
+
+            await RefreshJwtAsync(false, cancellationToken);
+
+            var request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v2/offline_query/{revisionId}"));
+            AddHeaders(request);
+
+            var response = await _httpClient.SendAsync(request, cancellationToken);
+            var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw ParseHttpException(response.StatusCode, responseBody);
+            }
+
+            var downloadResult = JsonConvert.DeserializeObject<OfflineQueryDownloadResult>(responseBody, JsonSettings);
+            if (downloadResult == null)
+            {
+                throw new ClientException("Failed to parse offline query download response");
+            }
+
+            if (downloadResult.IsFinished)
+            {
+                return downloadResult.Urls ?? new List<string>();
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // Upload Features
+    // ----------------------------------------------------------------
+
+    public async Task<UploadFeaturesResult> UploadFeaturesAsync(Dictionary<string, IList<object?>> inputs, CancellationToken cancellationToken = default)
+    {
+        if (inputs.Count == 0)
+        {
+            throw new ClientException("Inputs must not be empty for upload_features");
+        }
+
+        await RefreshJwtAsync(false, cancellationToken);
+
+        var featherBytes = ArrowConverter.InputsToFeatherBytes(inputs);
+        var columns = inputs.Keys.ToList();
+        var attrsJson = JsonConvert.SerializeObject(new { columns }, JsonSettings);
+        var body = BinaryProtocol.BuildByteBaseModel(attrsJson, new[] { ("table_bytes", featherBytes) });
+
+        var request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/upload_features/multi"))
+        {
+            Content = new ByteArrayContent(body)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+        AddHeaders(request);
+
+        var response = await _httpClient.SendAsync(request, cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            await RefreshJwtAsync(true, cancellationToken);
+            request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/upload_features/multi"))
+            {
+                Content = new ByteArrayContent(body)
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            AddHeaders(request);
+            response = await _httpClient.SendAsync(request, cancellationToken);
+        }
+
+        var responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            throw ParseHttpException(response.StatusCode, responseBody);
+        }
+
+        var result = JsonConvert.DeserializeObject<UploadFeaturesResult>(responseBody, JsonSettings);
+        return result ?? new UploadFeaturesResult();
+    }
+
+    public UploadFeaturesResult UploadFeatures(Dictionary<string, IList<object?>> inputs)
+    {
+        return UploadFeaturesAsync(inputs).GetAwaiter().GetResult();
+    }
+
+    // ----------------------------------------------------------------
+    // Bulk Query
+    // ----------------------------------------------------------------
+
+    public async Task<BulkQueryResult> OnlineQueryBulkAsync(OnlineQueryParams queryParams, CancellationToken cancellationToken = default)
+    {
+        await RefreshJwtAsync(false, cancellationToken);
+
+        var featherBytes = ArrowConverter.InputsToFeatherBytes(queryParams.Inputs);
+
+        var header = new Dictionary<string, object>
+        {
+            ["outputs"] = queryParams.Outputs
+        };
+
+        if (queryParams.Staleness != null)
+        {
+            header["staleness"] = queryParams.Staleness.ToDictionary(
+                kv => kv.Key,
+                kv => $"{kv.Value.TotalSeconds}s");
+        }
+
+        if (queryParams.Now != null)
+        {
+            header["now"] = queryParams.Now.Select(n => n.ToString("o")).ToList();
+        }
+
+        if (!string.IsNullOrEmpty(queryParams.CorrelationId))
+        {
+            header["correlation_id"] = queryParams.CorrelationId;
+        }
+
+        if (queryParams.IncludeMeta)
+        {
+            header["include_meta"] = true;
+        }
+
+        if (queryParams.StorePlanStages)
+        {
+            header["store_plan_stages"] = true;
+        }
+
+        if (queryParams.Explain)
+        {
+            header["explain"] = true;
+        }
+
+        if (queryParams.Tags != null)
+        {
+            header["tags"] = queryParams.Tags;
+        }
+
+        if (queryParams.RequiredResolverTags != null)
+        {
+            header["required_resolver_tags"] = queryParams.RequiredResolverTags;
+        }
+
+        if (queryParams.PlannerOptions != null)
+        {
+            header["planner_options"] = queryParams.PlannerOptions;
+        }
+
+        if (queryParams.Meta != null)
+        {
+            header["meta"] = queryParams.Meta;
+        }
+
+        var headerJson = JsonConvert.SerializeObject(header, JsonSettings);
+        var body = BinaryProtocol.BuildFeatherRequest(headerJson, featherBytes);
+
+        var request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/query/feather"))
+        {
+            Content = new ByteArrayContent(body)
+        };
+        request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+        AddHeaders(request, queryParams);
+
+        var timeout = queryParams.Timeout ?? _timeout;
+        using var cts = timeout.HasValue
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+
+        if (cts != null)
+        {
+            cts.CancelAfter(timeout!.Value);
+        }
+
+        var response = await _httpClient.SendAsync(request, cts?.Token ?? cancellationToken);
+
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            await RefreshJwtAsync(true, cancellationToken);
+            request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/query/feather"))
+            {
+                Content = new ByteArrayContent(body)
+            };
+            request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            AddHeaders(request, queryParams);
+            response = await _httpClient.SendAsync(request, cts?.Token ?? cancellationToken);
+        }
+
+        var responseBytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = Encoding.UTF8.GetString(responseBytes);
+            throw ParseHttpException(response.StatusCode, errorBody);
+        }
+
+        return ParseBulkQueryResponse(responseBytes);
+    }
+
+    public BulkQueryResult OnlineQueryBulk(OnlineQueryParams queryParams)
+    {
+        return OnlineQueryBulkAsync(queryParams).GetAwaiter().GetResult();
+    }
+
+    // ----------------------------------------------------------------
+    // Config
+    // ----------------------------------------------------------------
+
     public void PrintConfig()
     {
         Console.WriteLine("ChalkClient Configuration:");
@@ -176,6 +531,10 @@ public class ChalkClient : IChalkClient
         Console.WriteLine();
         Console.WriteLine("Configuration precedence: builder > environment variable > chalk.yaml > default");
     }
+
+    // ----------------------------------------------------------------
+    // Request building
+    // ----------------------------------------------------------------
 
     private object BuildOnlineQueryRequest(OnlineQueryParams queryParams)
     {
@@ -257,6 +616,10 @@ public class ChalkClient : IChalkClient
         return request;
     }
 
+    // ----------------------------------------------------------------
+    // Headers
+    // ----------------------------------------------------------------
+
     private void AddHeaders(HttpRequestMessage request, OnlineQueryParams queryParams)
     {
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -301,6 +664,48 @@ public class ChalkClient : IChalkClient
         }
     }
 
+    private void AddHeaders(HttpRequestMessage request, string? branch = null, string? queryName = null)
+    {
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Headers.Add("User-Agent", "chalk-csharp");
+        request.Headers.Add("X-Chalk-Client-Id", _clientId.Value);
+
+        if (_jwt != null)
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _jwt.Value);
+        }
+
+        if (!string.IsNullOrEmpty(_environmentId.Value))
+        {
+            request.Headers.Add("X-Chalk-Env-Id", _environmentId.Value);
+        }
+
+        var effectiveBranch = branch ?? _branch;
+        if (!string.IsNullOrEmpty(effectiveBranch))
+        {
+            request.Headers.Add("X-Chalk-Branch-Id", effectiveBranch);
+            request.Headers.Add("X-Chalk-Deployment-Type", "branch");
+        }
+        else
+        {
+            request.Headers.Add("X-Chalk-Deployment-Type", "engine");
+        }
+
+        if (!string.IsNullOrEmpty(_deploymentTag))
+        {
+            request.Headers.Add("X-Chalk-Deployment-Tag", _deploymentTag);
+        }
+
+        if (!string.IsNullOrEmpty(queryName))
+        {
+            request.Headers.Add("X-Chalk-Query-Name", queryName);
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // URL routing
+    // ----------------------------------------------------------------
+
     private Uri GetQueryUri(string path)
     {
         // Try query server override first
@@ -319,6 +724,15 @@ public class ChalkClient : IChalkClient
         // Fall back to API server
         return new Uri(new Uri(_apiServer.Value), path);
     }
+
+    private Uri GetApiServerUri(string path)
+    {
+        return new Uri(new Uri(_apiServer.Value), path);
+    }
+
+    // ----------------------------------------------------------------
+    // Token management
+    // ----------------------------------------------------------------
 
     private async Task RefreshJwtAsync(bool force, CancellationToken cancellationToken)
     {
@@ -383,6 +797,10 @@ public class ChalkClient : IChalkClient
         }
     }
 
+    // ----------------------------------------------------------------
+    // Response parsing
+    // ----------------------------------------------------------------
+
     private OnlineQueryResult ParseOnlineQueryResponse(string responseBody)
     {
         var response = JsonConvert.DeserializeObject<OnlineQueryJsonResponse>(responseBody, JsonSettings);
@@ -409,6 +827,45 @@ public class ChalkClient : IChalkClient
             {
                 result.Data[group.Key] = group.Select(r => r.Value).ToList();
             }
+        }
+
+        return result;
+    }
+
+    private static BulkQueryResult ParseBulkQueryResponse(byte[] responseBytes)
+    {
+        var result = new BulkQueryResult();
+
+        try
+        {
+            var (jsonAttrs, sections) = BinaryProtocol.ParseByteBaseModel(responseBytes);
+            result.Meta = jsonAttrs;
+
+            if (sections.TryGetValue("table_bytes", out var tableBytes))
+            {
+                result.ScalarData = tableBytes;
+            }
+
+            // Parse errors from the attrs JSON if present
+            try
+            {
+                var attrs = JsonConvert.DeserializeObject<Dictionary<string, object>>(jsonAttrs);
+                if (attrs != null && attrs.TryGetValue("errors", out var errorsObj) && errorsObj is Newtonsoft.Json.Linq.JArray errorsArray)
+                {
+                    foreach (var err in errorsArray)
+                    {
+                        result.Errors.Add(err.ToString());
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore JSON parsing errors for attrs
+            }
+        }
+        catch (Exception ex)
+        {
+            result.Errors.Add($"Failed to parse bulk query response: {ex.Message}");
         }
 
         return result;
