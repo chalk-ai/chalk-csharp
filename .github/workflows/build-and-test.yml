@@ -88,8 +88,11 @@ jobs:
 
     - name: Run tests with Mono
       run: |
+        # Download nuget.exe (not available on PATH in GitHub Actions macOS runners)
+        curl -sSL -o nuget.exe https://dist.nuget.org/win-x86-commandline/latest/nuget.exe
+
         # Install NUnit console runner
-        nuget install NUnit.ConsoleRunner -Version 3.16.3 -OutputDirectory ./tools
+        mono nuget.exe install NUnit.ConsoleRunner -Version 3.16.3 -OutputDirectory ./tools
 
         # Run tests using Mono (unit tests only)
         mono ./tools/NUnit.ConsoleRunner.3.16.3/tools/nunit3-console.exe \
