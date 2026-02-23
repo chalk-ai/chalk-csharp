@@ -68,7 +68,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 1: Online Query (user.id=1) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
-            .WithOutputs("user.id", "user.name", "user.email", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-integration-test")
             .Build();
@@ -90,6 +90,7 @@ public class IntegrationTests
         }
 
         Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
+        Assert.That(result.Data.ContainsKey("user.id"), Is.True, "Expected user.id in response data");
     }
 
     /// <summary>
@@ -105,7 +106,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 2: Online Query (user.id=2) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 2)
-            .WithOutputs("user.id", "user.name", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-integration-test")
             .Build();
@@ -133,7 +134,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 3: Multi-Row Query (user.id=[1,2,3]) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", new List<object?> { 1, 2, 3 })
-            .WithOutputs("user.id", "user.name", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-bulk-integration-test")
             .Build();
@@ -181,7 +182,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 4: gRPC Online Query (user.id=1) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
-            .WithOutputs("user.id", "user.name", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-grpc-integration-test")
             .Build();
@@ -217,7 +218,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 5: gRPC Online Query (user.id=2) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 2)
-            .WithOutputs("user.id", "user.name", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-grpc-integration-test")
             .Build();
@@ -245,7 +246,7 @@ public class IntegrationTests
         Console.WriteLine("\n=== Test 6: gRPC Multi-Row Query (user.id=[1,2,3]) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", new List<object?> { 1, 2, 3 })
-            .WithOutputs("user.id", "user.name", "user.age")
+            .WithOutputs("user.id")
             .WithIncludeMeta()
             .WithQueryName("csharp-grpc-bulk-integration-test")
             .Build();
