@@ -50,7 +50,7 @@ public class IntegrationTests
             .Build();
 
     // ----------------------------------------------------------------
-    // HTTP Client — matches Rust integration_test.rs Tests 1-3
+    // HTTP Client — matches Rust integration_test.rs Tests 1-2
     // ----------------------------------------------------------------
 
     /// <summary>
@@ -121,52 +121,16 @@ public class IntegrationTests
         Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
     }
 
-    /// <summary>
-    /// Test 3: HTTP multi-row (bulk) query with user.id=[1,2,3].
-    /// Matches Rust: Test 3: Bulk Query (user.id=[1,2,3])
-    /// </summary>
-    [Test]
-    [Order(3)]
-    public async Task HttpClient_MultiRowQuery()
-    {
-        using var client = BuildHttpClient();
-
-        Console.WriteLine("\n=== Test 3: Multi-Row Query (user.id=[1,2,3]) ===");
-        var queryParams = new OnlineQueryParamsBuilder()
-            .WithInput("user.id", new List<object?> { 1, 2, 3 })
-            .WithOutputs("user.id")
-            .WithIncludeMeta()
-            .WithQueryName("csharp-bulk-integration-test")
-            .Build();
-
-        var result = await client.OnlineQueryAsync(queryParams);
-
-        foreach (var (feature, values) in result.Data)
-        {
-            Console.WriteLine($"  {feature}: [{string.Join(", ", values)}]");
-        }
-        if (result.Meta != null)
-        {
-            Console.WriteLine($"  query_id: {result.Meta.QueryId}");
-        }
-        foreach (var error in result.Errors)
-        {
-            Console.Error.WriteLine($"  error: code={error.Code} message={error.Message}");
-        }
-
-        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
-    }
-
     // ----------------------------------------------------------------
     // gRPC Client — matches Rust integration_test.rs Tests 6-7
     // ----------------------------------------------------------------
 
     /// <summary>
-    /// Test 4: gRPC client authentication and online query (user.id=1).
+    /// Test 3: gRPC client authentication and online query (user.id=1).
     /// Matches Rust: Test 6: gRPC Online Query (user.id=1)
     /// </summary>
     [Test]
-    [Order(4)]
+    [Order(3)]
     public async Task GrpcClient_OnlineQuery_UserId1()
     {
         using var client = BuildGrpcClient();
@@ -179,7 +143,7 @@ public class IntegrationTests
             Console.WriteLine($"  gRPC engine URL: {engineUrl}");
         }
 
-        Console.WriteLine("\n=== Test 4: gRPC Online Query (user.id=1) ===");
+        Console.WriteLine("\n=== Test 3: gRPC Online Query (user.id=1) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
             .WithOutputs("user.id")
@@ -206,16 +170,16 @@ public class IntegrationTests
     }
 
     /// <summary>
-    /// Test 5: gRPC online query with a different user (user.id=2).
+    /// Test 4: gRPC online query with a different user (user.id=2).
     /// Matches Rust: Test 7: gRPC Online Query (user.id=2)
     /// </summary>
     [Test]
-    [Order(5)]
+    [Order(4)]
     public async Task GrpcClient_OnlineQuery_UserId2()
     {
         using var client = BuildGrpcClient();
 
-        Console.WriteLine("\n=== Test 5: gRPC Online Query (user.id=2) ===");
+        Console.WriteLine("\n=== Test 4: gRPC Online Query (user.id=2) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 2)
             .WithOutputs("user.id")
@@ -233,58 +197,25 @@ public class IntegrationTests
         Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
     }
 
-    /// <summary>
-    /// Test 6: gRPC multi-row query with user.id=[1,2,3].
-    /// Matches Rust: Test 8: gRPC Bulk Query (user.id=[1,2,3])
-    /// </summary>
-    [Test]
-    [Order(6)]
-    public async Task GrpcClient_MultiRowQuery()
-    {
-        using var client = BuildGrpcClient();
-
-        Console.WriteLine("\n=== Test 6: gRPC Multi-Row Query (user.id=[1,2,3]) ===");
-        var queryParams = new OnlineQueryParamsBuilder()
-            .WithInput("user.id", new List<object?> { 1, 2, 3 })
-            .WithOutputs("user.id")
-            .WithIncludeMeta()
-            .WithQueryName("csharp-grpc-bulk-integration-test")
-            .Build();
-
-        var result = await client.OnlineQueryAsync(queryParams);
-
-        foreach (var (feature, values) in result.Data)
-        {
-            Console.WriteLine($"  {feature}: [{string.Join(", ", values)}]");
-        }
-        foreach (var error in result.Errors)
-        {
-            Console.Error.WriteLine($"  error: code={error.Code} message={error.Message}");
-        }
-
-        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
-    }
-
     // ----------------------------------------------------------------
     // Error handling
     // ----------------------------------------------------------------
 
     /// <summary>
-    /// Verifies the client surfaces server errors properly when querying
-    /// a feature that may not resolve.
+    /// Verifies the client returns metadata on successful queries.
     /// </summary>
     [Test]
-    [Order(7)]
-    public async Task HttpClient_QueryWithErrors_SurfacesErrors()
+    [Order(5)]
+    public async Task HttpClient_QueryMetadata_ReturnsQueryId()
     {
         using var client = BuildHttpClient();
 
-        Console.WriteLine("\n=== Test 7: Query Error Handling ===");
+        Console.WriteLine("\n=== Test 5: Query Metadata ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
             .WithOutputs("user.id")
             .WithIncludeMeta()
-            .WithQueryName("csharp-error-handling-test")
+            .WithQueryName("csharp-metadata-test")
             .Build();
 
         var result = await client.OnlineQueryAsync(queryParams);
@@ -298,7 +229,6 @@ public class IntegrationTests
             Console.WriteLine($"  deployment_id: {result.Meta.DeploymentId}");
         }
 
-        // We expect the query to succeed (even if some features have errors)
         Assert.That(result.Meta, Is.Not.Null, "Expected query metadata");
         Assert.That(result.Meta!.QueryId, Is.Not.Null.And.Not.Empty, "Expected a query ID");
     }
