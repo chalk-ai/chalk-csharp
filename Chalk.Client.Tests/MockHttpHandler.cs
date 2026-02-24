@@ -6,8 +6,7 @@ namespace Chalk.Client.Tests;
 
 /// <summary>
 /// A mock HTTP message handler that intercepts requests and returns pre-configured
-/// responses. This is the C# equivalent of Rust's mockito library — responses are
-/// matched by HTTP method and URL path, consumed in FIFO order.
+/// responses. Responses are matched by HTTP method and URL path, consumed in FIFO order.
 /// All requests are captured for post-hoc assertions on headers, bodies, and URLs.
 /// </summary>
 internal class MockHttpHandler : HttpMessageHandler

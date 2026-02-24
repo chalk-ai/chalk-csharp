@@ -9,8 +9,7 @@ namespace Chalk.Client.Tests;
 
 /// <summary>
 /// Online query tests using a mock HTTP handler.
-/// These tests verify the full client request/response flow without making real network calls,
-/// following the same pattern as the Rust SDK's mockito-based integration tests in http_client.rs.
+/// These tests verify the full client request/response flow without making real network calls.
 /// </summary>
 [TestFixture]
 public class OnlineQueryTests
@@ -96,7 +95,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies successful online query with correct response parsing.
-    /// Matches Rust SDK's test_query().
     /// </summary>
     [Test]
     public async Task OnlineQuery_Success_ReturnsFeatureValues()
@@ -181,7 +179,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies API error throws ServerException with structured error details.
-    /// Matches Rust SDK's test_query_api_error().
     /// </summary>
     [Test]
     public void OnlineQuery_ApiError_ThrowsServerException()
@@ -353,7 +350,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies all expected headers are sent with the query request.
-    /// Matches Rust SDK's header matching assertions in test_query().
     /// </summary>
     [Test]
     public async Task OnlineQuery_VerifiesRequestHeaders()
@@ -384,7 +380,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies branch routing sets the correct deployment type and branch ID headers.
-    /// Matches Rust SDK's gRPC metadata injection test for branch headers.
     /// </summary>
     [Test]
     public async Task OnlineQuery_WithBranch_SendsBranchDeploymentType()
@@ -605,7 +600,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies engine URL from token response is used for queries.
-    /// Matches Rust SDK's test_client_builder() engine routing.
     /// </summary>
     [Test]
     public async Task OnlineQuery_EngineFromToken_RoutesToEngine()
@@ -660,7 +654,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies token is cached across multiple queries (only one token exchange).
-    /// Matches Rust SDK's test_token_caching().
     /// </summary>
     [Test]
     public async Task TokenExchange_CachesToken_AcrossMultipleQueries()
@@ -689,7 +682,6 @@ public class OnlineQueryTests
 
     /// <summary>
     /// Verifies token exchange failure throws ClientException.
-    /// Matches Rust SDK's test_token_exchange_failure().
     /// </summary>
     [Test]
     public void TokenExchange_Failure_ThrowsClientException()
