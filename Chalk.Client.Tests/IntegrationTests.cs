@@ -5,12 +5,17 @@ using NUnit.Framework;
 
 namespace Chalk.Client.Tests;
 
+/// <summary>
+/// End-to-end integration tests against a live Chalk environment.
+/// Matches the Rust SDK's examples/integration_test.rs structure.
+///
+/// Requires environment variables:
+///   CHALK_CLIENT_ID, CHALK_CLIENT_SECRET, CHALK_ACTIVE_ENVIRONMENT, CHALK_API_SERVER
+/// </summary>
 [TestFixture]
 [Category("Integration")]
 public class IntegrationTests
 {
-    // Set these environment variables to run integration tests:
-    // CHALK_CLIENT_ID, CHALK_CLIENT_SECRET, CHALK_ACTIVE_ENVIRONMENT, CHALK_API_SERVER
     private static readonly string? ClientId = Environment.GetEnvironmentVariable("CHALK_CLIENT_ID");
     private static readonly string? ClientSecret = Environment.GetEnvironmentVariable("CHALK_CLIENT_SECRET");
     private static readonly string? EnvironmentId = Environment.GetEnvironmentVariable("CHALK_ACTIVE_ENVIRONMENT");
@@ -25,49 +30,8 @@ public class IntegrationTests
         }
     }
 
-    [Test]
-    public async Task HttpClient_CanAuthenticate()
-    {
-        using var client = ChalkClient.Builder()
-            .WithClientId(ClientId!)
-            .WithClientSecret(ClientSecret!)
-            .WithEnvironmentId(EnvironmentId!)
-            .WithApiServer(ApiServer!)
-            .Build();
-
-        // If we get here without exception, authentication succeeded
-        client.PrintConfig();
-        Assert.Pass("Authentication successful");
-    }
-
-    [Test]
-    public async Task GrpcClient_CanAuthenticate()
-    {
-        using var client = ChalkClient.Builder()
-            .WithClientId(ClientId!)
-            .WithClientSecret(ClientSecret!)
-            .WithEnvironmentId(EnvironmentId!)
-            .WithApiServer(ApiServer!)
-            .WithGrpc()
-            .Build();
-
-        // If we get here without exception, authentication succeeded
-        client.PrintConfig();
-
-        // Check that we got the gRPC engine URL
-        if (client is GrpcChalkClient grpcClient)
-        {
-            var engineUrl = grpcClient.GetGrpcEngineUrl();
-            Console.WriteLine($"gRPC Engine URL: {engineUrl}");
-        }
-
-        Assert.Pass("gRPC Authentication successful");
-    }
-
-    [Test]
-    public async Task HttpClient_CanQueryFeatures()
-    {
-        using var client = ChalkClient.Builder()
+    private IChalkClient BuildHttpClient() =>
+        ChalkClient.Builder()
             .WithClientId(ClientId!)
             .WithClientSecret(ClientSecret!)
             .WithEnvironmentId(EnvironmentId!)
@@ -75,7 +39,33 @@ public class IntegrationTests
             .WithTimeout(TimeSpan.FromSeconds(30))
             .Build();
 
-        // Query user.id=1 and request user.id as output
+    private IChalkClient BuildGrpcClient() =>
+        ChalkClient.Builder()
+            .WithClientId(ClientId!)
+            .WithClientSecret(ClientSecret!)
+            .WithEnvironmentId(EnvironmentId!)
+            .WithApiServer(ApiServer!)
+            .WithGrpc()
+            .WithTimeout(TimeSpan.FromSeconds(30))
+            .Build();
+
+    // ----------------------------------------------------------------
+    // HTTP Client — matches Rust integration_test.rs Tests 1-2
+    // ----------------------------------------------------------------
+
+    /// <summary>
+    /// Test 1: HTTP online query (user.id=1).
+    /// Matches Rust: Test 1: Online Query (user.id=1)
+    /// </summary>
+    [Test]
+    [Order(1)]
+    public async Task HttpClient_OnlineQuery_UserId1()
+    {
+        using var client = BuildHttpClient();
+        Console.WriteLine("HTTP client connected");
+        client.PrintConfig();
+
+        Console.WriteLine("\n=== Test 1: Online Query (user.id=1) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
             .WithOutputs("user.id")
@@ -83,58 +73,77 @@ public class IntegrationTests
             .WithQueryName("csharp-integration-test")
             .Build();
 
-        try
+        var result = await client.OnlineQueryAsync(queryParams);
+
+        foreach (var (feature, values) in result.Data)
         {
-            var result = await client.OnlineQueryAsync(queryParams);
-
-            Console.WriteLine($"Query completed successfully");
-            if (result.Meta != null)
-            {
-                Console.WriteLine($"  Query ID: {result.Meta.QueryId}");
-                Console.WriteLine($"  Execution Duration: {result.Meta.ExecutionDurationS}s");
-                Console.WriteLine($"  Environment: {result.Meta.EnvironmentName}");
-            }
-
-            if (result.Errors.Count > 0)
-            {
-                Console.WriteLine($"  Errors: {result.Errors.Count}");
-                foreach (var error in result.Errors)
-                {
-                    Console.WriteLine($"    - {error}");
-                }
-            }
-
-            Console.WriteLine($"  Data features: {result.Data.Count}");
-            foreach (var (feature, values) in result.Data)
-            {
-                Console.WriteLine($"    - {feature}: {string.Join(", ", values)}");
-            }
-
-            // Verify we got the user.id back
-            var userId = result.GetValue<object>("user.id");
-            Console.WriteLine($"  user.id value: {userId}");
-
-            Assert.Pass("Query completed");
+            Console.WriteLine($"  {feature}: {string.Join(", ", values)}");
         }
-        catch (ServerException ex)
+        foreach (var error in result.Errors)
         {
-            Console.WriteLine($"Server error: {ex.StatusCode} - {ex.Message}");
-            Assert.Fail($"Server error: {ex.Message}");
+            Console.Error.WriteLine($"  error: code={error.Code} message={error.Message}");
         }
+        if (result.Meta != null)
+        {
+            Console.WriteLine($"  query_id: {result.Meta.QueryId}");
+            Console.WriteLine($"  execution_duration_s: {result.Meta.ExecutionDurationS}");
+        }
+
+        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
+        Assert.That(result.Data.ContainsKey("user.id"), Is.True, "Expected user.id in response data");
     }
 
+    /// <summary>
+    /// Test 2: HTTP online query with a different user (user.id=2).
+    /// Matches Rust: Test 2: Online Query (user.id=2)
+    /// </summary>
     [Test]
-    public async Task GrpcClient_CanQueryFeatures()
+    [Order(2)]
+    public async Task HttpClient_OnlineQuery_UserId2()
     {
-        using var client = ChalkClient.Builder()
-            .WithClientId(ClientId!)
-            .WithClientSecret(ClientSecret!)
-            .WithEnvironmentId(EnvironmentId!)
-            .WithApiServer(ApiServer!)
-            .WithGrpc()
-            .WithTimeout(TimeSpan.FromSeconds(30))
+        using var client = BuildHttpClient();
+
+        Console.WriteLine("\n=== Test 2: Online Query (user.id=2) ===");
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 2)
+            .WithOutputs("user.id")
+            .WithIncludeMeta()
+            .WithQueryName("csharp-integration-test")
             .Build();
 
+        var result = await client.OnlineQueryAsync(queryParams);
+
+        foreach (var (feature, values) in result.Data)
+        {
+            Console.WriteLine($"  {feature}: {string.Join(", ", values)}");
+        }
+
+        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
+    }
+
+    // ----------------------------------------------------------------
+    // gRPC Client — matches Rust integration_test.rs Tests 6-7
+    // ----------------------------------------------------------------
+
+    /// <summary>
+    /// Test 3: gRPC client authentication and online query (user.id=1).
+    /// Matches Rust: Test 6: gRPC Online Query (user.id=1)
+    /// </summary>
+    [Test]
+    [Order(3)]
+    public async Task GrpcClient_OnlineQuery_UserId1()
+    {
+        using var client = BuildGrpcClient();
+        Console.WriteLine("\ngRPC client connected");
+        client.PrintConfig();
+
+        if (client is GrpcChalkClient grpcClient)
+        {
+            var engineUrl = grpcClient.GetGrpcEngineUrl();
+            Console.WriteLine($"  gRPC engine URL: {engineUrl}");
+        }
+
+        Console.WriteLine("\n=== Test 3: gRPC Online Query (user.id=1) ===");
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", 1)
             .WithOutputs("user.id")
@@ -142,68 +151,85 @@ public class IntegrationTests
             .WithQueryName("csharp-grpc-integration-test")
             .Build();
 
-        try
+        var result = await client.OnlineQueryAsync(queryParams);
+
+        foreach (var (feature, values) in result.Data)
         {
-            var result = await client.OnlineQueryAsync(queryParams);
-
-            Console.WriteLine($"gRPC Query completed successfully");
-            if (result.Meta != null)
-            {
-                Console.WriteLine($"  Query ID: {result.Meta.QueryId}");
-                Console.WriteLine($"  Execution Duration: {result.Meta.ExecutionDurationS}s");
-            }
-
-            var userId = result.GetValue<object>("user.id");
-            Console.WriteLine($"  user.id value: {userId}");
-
-            Assert.Pass("gRPC Query completed");
+            Console.WriteLine($"  {feature}: {string.Join(", ", values)}");
         }
-        catch (ServerException ex)
+        foreach (var error in result.Errors)
         {
-            Console.WriteLine($"Server error: {ex.StatusCode} - {ex.Message}");
-            Assert.Fail($"Server error: {ex.Message}");
+            Console.Error.WriteLine($"  error: code={error.Code} message={error.Message}");
         }
+        if (result.Meta != null)
+        {
+            Console.WriteLine($"  query_id: {result.Meta.QueryId}");
+        }
+
+        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
     }
 
+    /// <summary>
+    /// Test 4: gRPC online query with a different user (user.id=2).
+    /// Matches Rust: Test 7: gRPC Online Query (user.id=2)
+    /// </summary>
     [Test]
-    public async Task HttpClient_BulkQuery()
+    [Order(4)]
+    public async Task GrpcClient_OnlineQuery_UserId2()
     {
-        using var client = ChalkClient.Builder()
-            .WithClientId(ClientId!)
-            .WithClientSecret(ClientSecret!)
-            .WithEnvironmentId(EnvironmentId!)
-            .WithApiServer(ApiServer!)
-            .WithTimeout(TimeSpan.FromSeconds(30))
-            .Build();
+        using var client = BuildGrpcClient();
 
-        // Bulk query with multiple inputs
+        Console.WriteLine("\n=== Test 4: gRPC Online Query (user.id=2) ===");
         var queryParams = new OnlineQueryParamsBuilder()
-            .WithInput("user.id", new List<object?> { 1, 2, 3 })
+            .WithInput("user.id", 2)
             .WithOutputs("user.id")
             .WithIncludeMeta()
-            .WithQueryName("csharp-bulk-integration-test")
+            .WithQueryName("csharp-grpc-integration-test")
             .Build();
 
-        try
+        var result = await client.OnlineQueryAsync(queryParams);
+
+        foreach (var (feature, values) in result.Data)
         {
-            var result = await client.OnlineQueryAsync(queryParams);
-
-            Console.WriteLine($"Bulk query completed");
-            if (result.Meta != null)
-            {
-                Console.WriteLine($"  Query ID: {result.Meta.QueryId}");
-            }
-
-            var userIds = result.GetValues<object>("user.id");
-            Console.WriteLine($"  Results count: {userIds.Count}");
-            Console.WriteLine($"  user.id values: {string.Join(", ", userIds)}");
-
-            Assert.Pass("Bulk query completed");
+            Console.WriteLine($"  {feature}: {string.Join(", ", values)}");
         }
-        catch (ServerException ex)
+
+        Assert.That(result.Data, Is.Not.Empty, "Expected at least one feature in response");
+    }
+
+    // ----------------------------------------------------------------
+    // Error handling
+    // ----------------------------------------------------------------
+
+    /// <summary>
+    /// Verifies the client returns metadata on successful queries.
+    /// </summary>
+    [Test]
+    [Order(5)]
+    public async Task HttpClient_QueryMetadata_ReturnsQueryId()
+    {
+        using var client = BuildHttpClient();
+
+        Console.WriteLine("\n=== Test 5: Query Metadata ===");
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithOutputs("user.id")
+            .WithIncludeMeta()
+            .WithQueryName("csharp-metadata-test")
+            .Build();
+
+        var result = await client.OnlineQueryAsync(queryParams);
+
+        Console.WriteLine($"  data features: {result.Data.Count}");
+        Console.WriteLine($"  errors: {result.Errors.Count}");
+        if (result.Meta != null)
         {
-            Console.WriteLine($"Server error: {ex.StatusCode} - {ex.Message}");
-            Assert.Fail($"Server error: {ex.Message}");
+            Console.WriteLine($"  query_id: {result.Meta.QueryId}");
+            Console.WriteLine($"  environment: {result.Meta.EnvironmentName}");
+            Console.WriteLine($"  deployment_id: {result.Meta.DeploymentId}");
         }
+
+        Assert.That(result.Meta, Is.Not.Null, "Expected query metadata");
+        Assert.That(result.Meta!.QueryId, Is.Not.Null.And.Not.Empty, "Expected a query ID");
     }
 }
