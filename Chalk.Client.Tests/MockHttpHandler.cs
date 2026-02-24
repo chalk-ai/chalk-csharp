@@ -1,12 +1,12 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 
 namespace Chalk.Client.Tests;
 
 /// <summary>
 /// A mock HTTP message handler that intercepts requests and returns pre-configured
-/// responses. This is the C# equivalent of Rust's mockito library — responses are
-/// matched by HTTP method and URL path, consumed in FIFO order.
+/// responses. Responses are matched by HTTP method and URL path, consumed in FIFO order.
 /// All requests are captured for post-hoc assertions on headers, bodies, and URLs.
 /// </summary>
 internal class MockHttpHandler : HttpMessageHandler
@@ -30,7 +30,21 @@ internal class MockHttpHandler : HttpMessageHandler
         HttpStatusCode statusCode,
         string responseBody)
     {
-        _responses.Add(new MockedResponse(method.Method, path, statusCode, responseBody));
+        _responses.Add(new MockedResponse(method.Method, path, statusCode, responseBody, null, "application/json"));
+        return this;
+    }
+
+    /// <summary>
+    /// Enqueue a binary response for the next request matching the given method and path.
+    /// </summary>
+    public MockHttpHandler EnqueueBinary(
+        HttpMethod method,
+        string path,
+        HttpStatusCode statusCode,
+        byte[] responseBytes,
+        string contentType = "application/octet-stream")
+    {
+        _responses.Add(new MockedResponse(method.Method, path, statusCode, null, responseBytes, contentType));
         return this;
     }
 
@@ -38,9 +52,14 @@ internal class MockHttpHandler : HttpMessageHandler
         HttpRequestMessage request,
         CancellationToken cancellationToken)
     {
-        var bodyContent = request.Content != null
-            ? await request.Content.ReadAsStringAsync(cancellationToken)
-            : null;
+        byte[]? bodyBytes = null;
+        string? bodyContent = null;
+
+        if (request.Content != null)
+        {
+            bodyBytes = await request.Content.ReadAsByteArrayAsync(cancellationToken);
+            bodyContent = Encoding.UTF8.GetString(bodyBytes);
+        }
 
         var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var header in request.Headers)
@@ -52,7 +71,8 @@ internal class MockHttpHandler : HttpMessageHandler
             request.Method,
             request.RequestUri!,
             headers,
-            bodyContent));
+            bodyContent,
+            bodyBytes));
 
         var requestPath = request.RequestUri!.AbsolutePath;
         var requestMethod = request.Method.Method;
@@ -64,10 +84,18 @@ internal class MockHttpHandler : HttpMessageHandler
                 string.Equals(mock.Path, requestPath, StringComparison.OrdinalIgnoreCase))
             {
                 _responses.RemoveAt(i);
-                return new HttpResponseMessage(mock.StatusCode)
+
+                var responseMessage = new HttpResponseMessage(mock.StatusCode);
+                if (mock.BodyBytes != null)
                 {
-                    Content = new StringContent(mock.Body, Encoding.UTF8, "application/json")
-                };
+                    responseMessage.Content = new ByteArrayContent(mock.BodyBytes);
+                    responseMessage.Content.Headers.ContentType = new MediaTypeHeaderValue(mock.ContentType);
+                }
+                else
+                {
+                    responseMessage.Content = new StringContent(mock.Body ?? "", Encoding.UTF8, mock.ContentType);
+                }
+                return responseMessage;
             }
         }
 
@@ -84,7 +112,9 @@ internal class MockHttpHandler : HttpMessageHandler
         string Method,
         string Path,
         HttpStatusCode StatusCode,
-        string Body);
+        string? Body,
+        byte[]? BodyBytes,
+        string ContentType);
 }
 
 /// <summary>
@@ -94,7 +124,8 @@ internal sealed record CapturedRequest(
     HttpMethod Method,
     Uri Uri,
     Dictionary<string, string> Headers,
-    string? Body)
+    string? Body,
+    byte[]? BodyBytes = null)
 {
     /// <summary>
     /// Get a header value by name (case-insensitive). Returns null if not present.

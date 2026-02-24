@@ -7,7 +7,6 @@ namespace Chalk.Client.Tests;
 
 /// <summary>
 /// End-to-end integration tests against a live Chalk environment.
-/// Matches the Rust SDK's examples/integration_test.rs structure.
 ///
 /// Requires environment variables:
 ///   CHALK_CLIENT_ID, CHALK_CLIENT_SECRET, CHALK_ACTIVE_ENVIRONMENT, CHALK_API_SERVER
@@ -50,12 +49,11 @@ public class IntegrationTests
             .Build();
 
     // ----------------------------------------------------------------
-    // HTTP Client — matches Rust integration_test.rs Tests 1-2
+    // HTTP Client
     // ----------------------------------------------------------------
 
     /// <summary>
     /// Test 1: HTTP online query (user.id=1).
-    /// Matches Rust: Test 1: Online Query (user.id=1)
     /// </summary>
     [Test]
     [Order(1)]
@@ -95,7 +93,6 @@ public class IntegrationTests
 
     /// <summary>
     /// Test 2: HTTP online query with a different user (user.id=2).
-    /// Matches Rust: Test 2: Online Query (user.id=2)
     /// </summary>
     [Test]
     [Order(2)]
@@ -122,12 +119,11 @@ public class IntegrationTests
     }
 
     // ----------------------------------------------------------------
-    // gRPC Client — matches Rust integration_test.rs Tests 6-7
+    // gRPC Client
     // ----------------------------------------------------------------
 
     /// <summary>
     /// Test 3: gRPC client authentication and online query (user.id=1).
-    /// Matches Rust: Test 6: gRPC Online Query (user.id=1)
     /// </summary>
     [Test]
     [Order(3)]
@@ -171,7 +167,6 @@ public class IntegrationTests
 
     /// <summary>
     /// Test 4: gRPC online query with a different user (user.id=2).
-    /// Matches Rust: Test 7: gRPC Online Query (user.id=2)
     /// </summary>
     [Test]
     [Order(4)]
