@@ -46,6 +46,7 @@ internal static class ArrowConverter
 
         return arrowType switch
         {
+            Int32Type => BuildInt32Column(name, values),
             Int64Type => BuildInt64Column(name, values),
             DoubleType => BuildDoubleColumn(name, values),
             StringType => BuildStringColumn(name, values),
@@ -62,10 +63,10 @@ internal static class ArrowConverter
 
             return value switch
             {
-                int => Int64Type.Default,
+                int => Int32Type.Default,
+                short => Int32Type.Default,
+                byte => Int32Type.Default,
                 long => Int64Type.Default,
-                short => Int64Type.Default,
-                byte => Int64Type.Default,
                 float => DoubleType.Default,
                 double => DoubleType.Default,
                 decimal => DoubleType.Default,
@@ -77,6 +78,23 @@ internal static class ArrowConverter
 
         // All nulls — default to string
         return StringType.Default;
+    }
+
+    private static (Field, IArrowArray) BuildInt32Column(string name, IList<object?> values)
+    {
+        var builder = new Int32Array.Builder();
+        foreach (var value in values)
+        {
+            if (value == null)
+            {
+                builder.AppendNull();
+            }
+            else
+            {
+                builder.Append(Convert.ToInt32(value));
+            }
+        }
+        return (new Field(name, Int32Type.Default, nullable: true), builder.Build());
     }
 
     private static (Field, IArrowArray) BuildInt64Column(string name, IList<object?> values)
