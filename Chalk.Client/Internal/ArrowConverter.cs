@@ -63,10 +63,10 @@ internal static class ArrowConverter
 
             return value switch
             {
-                int => Int32Type.Default,
-                short => Int32Type.Default,
-                byte => Int32Type.Default,
+                int => Int64Type.Default,
                 long => Int64Type.Default,
+                short => Int64Type.Default,
+                byte => Int64Type.Default,
                 float => DoubleType.Default,
                 double => DoubleType.Default,
                 decimal => DoubleType.Default,
