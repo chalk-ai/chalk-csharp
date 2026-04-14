@@ -805,7 +805,7 @@ public class GrpcChalkClient : IChalkClient
 
             foreach (var group in groupedByField)
             {
-                result.Data[group.Key] = group.Select(r => r.Value).ToList();
+                result.Data[group.Key] = group.Select(r => NarrowNumericType(r.Value)).ToList();
             }
         }
 
@@ -849,6 +849,21 @@ public class GrpcChalkClient : IChalkClient
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Narrows numeric types returned by JSON deserialization to the smallest
+    /// appropriate C# type. Newtonsoft.Json deserializes all JSON integers as
+    /// Int64 when the target type is object, which causes issues for consumers
+    /// expecting Int32 values (e.g. features defined as int32).
+    /// </summary>
+    private static object? NarrowNumericType(object? value)
+    {
+        if (value is long l && l >= int.MinValue && l <= int.MaxValue)
+        {
+            return (int)l;
+        }
+        return value;
     }
 
     private static ChalkException ParseHttpException(System.Net.HttpStatusCode statusCode, string body)
