@@ -79,6 +79,8 @@ public class BulkQueryTests
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", new List<object?> { 1, 2 })
             .WithOutputs("user.name", "user.age")
+            .WithQueryName("bulk-test")
+            .WithQueryNameVersion("v2")
             .Build();
 
         await client.OnlineQueryBulkAsync(queryParams);
@@ -89,6 +91,14 @@ public class BulkQueryTests
         // Verify "chal1" magic
         var magic = Encoding.ASCII.GetString(queryRequest.BodyBytes!, 0, 5);
         Assert.That(magic, Is.EqualTo("chal1"));
+
+        // Verify query_name and query_name_version are in the feather header
+        var b = queryRequest.BodyBytes!;
+        long headerLen = 0;
+        for (var i = 5; i < 13; i++) headerLen = (headerLen << 8) | b[i];
+        var featherHeader = Encoding.UTF8.GetString(b, 13, (int)headerLen);
+        Assert.That(featherHeader, Does.Contain("\"query_name\":\"bulk-test\""));
+        Assert.That(featherHeader, Does.Contain("\"query_name_version\":\"v2\""));
     }
 
     [Test]
