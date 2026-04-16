@@ -447,6 +447,16 @@ public class GrpcChalkClient : IChalkClient
             header["meta"] = queryParams.Meta;
         }
 
+        if (!string.IsNullOrEmpty(queryParams.QueryName))
+        {
+            header["query_name"] = queryParams.QueryName;
+        }
+
+        if (!string.IsNullOrEmpty(queryParams.QueryNameVersion))
+        {
+            header["query_name_version"] = queryParams.QueryNameVersion;
+        }
+
         var headerJson = JsonConvert.SerializeObject(header, JsonSettings);
         var body = BinaryProtocol.BuildFeatherRequest(headerJson, featherBytes);
 
@@ -610,6 +620,16 @@ public class GrpcChalkClient : IChalkClient
         if (!string.IsNullOrEmpty(queryParams.CorrelationId))
         {
             request["correlation_id"] = queryParams.CorrelationId;
+        }
+
+        if (!string.IsNullOrEmpty(queryParams.QueryName))
+        {
+            request["query_name"] = queryParams.QueryName;
+        }
+
+        if (!string.IsNullOrEmpty(queryParams.QueryNameVersion))
+        {
+            request["query_name_version"] = queryParams.QueryNameVersion;
         }
 
         return request;

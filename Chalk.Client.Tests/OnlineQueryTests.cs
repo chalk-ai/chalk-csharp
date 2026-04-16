@@ -379,6 +379,32 @@ public class OnlineQueryTests
     }
 
     /// <summary>
+    /// Verifies query_name and query_name_version are sent in the request body.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_VerifiesRequestBody()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithOutputs("user.name")
+            .WithQueryName("test-query")
+            .WithQueryNameVersion("v2")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        Assert.That(queryRequest.Body, Does.Contain("\"query_name\":\"test-query\""));
+        Assert.That(queryRequest.Body, Does.Contain("\"query_name_version\":\"v2\""));
+    }
+
+    /// <summary>
     /// Verifies branch routing sets the correct deployment type and branch ID headers.
     /// </summary>
     [Test]
