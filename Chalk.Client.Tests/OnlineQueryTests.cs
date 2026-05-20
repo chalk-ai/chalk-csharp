@@ -406,11 +406,12 @@ public class OnlineQueryTests
     }
 
     /// <summary>
-    /// Verifies a named-query-only build (no explicit outputs) succeeds and omits the
-    /// outputs key from the body so the server resolves outputs from the named query.
+    /// Verifies a named-query-only build (no explicit outputs) succeeds and sends an empty
+    /// outputs array so the server resolves outputs from the named query. The server
+    /// rejects requests where the outputs key is missing entirely, so it must be present.
     /// </summary>
     [Test]
-    public async Task OnlineQuery_QueryNameOnly_OmitsEmptyOutputs()
+    public async Task OnlineQuery_QueryNameOnly_SendsEmptyOutputs()
     {
         var handler = new MockHttpHandler();
         handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
@@ -428,7 +429,9 @@ public class OnlineQueryTests
         var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
         var body = JObject.Parse(queryRequest.Body!);
         Assert.That((string?)body["query_name"], Is.EqualTo("named-query-only"));
-        Assert.That(body.ContainsKey("outputs"), Is.False, "outputs should be omitted so the server fills them from the named query");
+        Assert.That(body.ContainsKey("outputs"), Is.True, "outputs key must be present so the server accepts the body");
+        Assert.That(body["outputs"]!.Type, Is.EqualTo(JTokenType.Array));
+        Assert.That(body["outputs"]!.Children().Count(), Is.EqualTo(0), "outputs should be empty so the server fills them from the named query");
         Assert.That(body["inputs"]?["user.id"]?.Value<int>(), Is.EqualTo(1));
     }
 

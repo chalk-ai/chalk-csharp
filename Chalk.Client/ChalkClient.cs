@@ -409,12 +409,12 @@ public class ChalkClient : IChalkClient
 
         var featherBytes = ArrowConverter.InputsToFeatherBytes(queryParams.Inputs);
 
-        // Omit empty outputs so the server's named-query resolution can fill them in.
-        var header = new Dictionary<string, object>();
-        if (queryParams.Outputs.Count > 0)
+        // Always include outputs (even empty) — the server rejects requests where the key
+        // is absent. When QueryName is set, an empty list triggers named-query resolution.
+        var header = new Dictionary<string, object>
         {
-            header["outputs"] = queryParams.Outputs;
-        }
+            ["outputs"] = queryParams.Outputs
+        };
 
         if (queryParams.Staleness != null)
         {
@@ -559,17 +559,14 @@ public class ChalkClient : IChalkClient
             }
         }
 
-        // Omit empty inputs/outputs so the server's named-query resolution can fill them in.
-        // Build()'s validation guarantees that when these are empty, QueryName is set.
-        var request = new Dictionary<string, object>();
-        if (inputs.Count > 0)
+        // Always include inputs/outputs (even empty) — the server rejects requests where
+        // either key is absent. When QueryName is set, an empty outputs list triggers
+        // named-query resolution server-side.
+        var request = new Dictionary<string, object>
         {
-            request["inputs"] = inputs;
-        }
-        if (queryParams.Outputs.Count > 0)
-        {
-            request["outputs"] = queryParams.Outputs;
-        }
+            ["inputs"] = inputs,
+            ["outputs"] = queryParams.Outputs
+        };
 
         if (queryParams.Staleness != null)
         {
