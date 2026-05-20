@@ -390,10 +390,12 @@ public class GrpcChalkClient : IChalkClient
 
         var featherBytes = ArrowConverter.InputsToFeatherBytes(queryParams.Inputs);
 
-        var header = new Dictionary<string, object>
+        // Omit empty outputs so the server's named-query resolution can fill them in.
+        var header = new Dictionary<string, object>();
+        if (queryParams.Outputs.Count > 0)
         {
-            ["outputs"] = queryParams.Outputs
-        };
+            header["outputs"] = queryParams.Outputs;
+        }
 
         if (queryParams.Staleness != null)
         {
@@ -447,15 +449,7 @@ public class GrpcChalkClient : IChalkClient
             header["meta"] = queryParams.Meta;
         }
 
-        if (!string.IsNullOrEmpty(queryParams.QueryName))
-        {
-            header["query_name"] = queryParams.QueryName;
-        }
-
-        if (!string.IsNullOrEmpty(queryParams.QueryNameVersion))
-        {
-            header["query_name_version"] = queryParams.QueryNameVersion;
-        }
+        header.AddNamedQueryFields(queryParams);
 
         var headerJson = JsonConvert.SerializeObject(header, JsonSettings);
         var body = BinaryProtocol.BuildFeatherRequest(headerJson, featherBytes);
@@ -564,11 +558,17 @@ public class GrpcChalkClient : IChalkClient
             }
         }
 
-        var request = new Dictionary<string, object>
+        // Omit empty inputs/outputs so the server's named-query resolution can fill them in.
+        // Build()'s validation guarantees that when these are empty, QueryName is set.
+        var request = new Dictionary<string, object>();
+        if (inputs.Count > 0)
         {
-            ["inputs"] = inputs,
-            ["outputs"] = queryParams.Outputs
-        };
+            request["inputs"] = inputs;
+        }
+        if (queryParams.Outputs.Count > 0)
+        {
+            request["outputs"] = queryParams.Outputs;
+        }
 
         if (queryParams.Staleness != null)
         {
@@ -622,15 +622,7 @@ public class GrpcChalkClient : IChalkClient
             request["correlation_id"] = queryParams.CorrelationId;
         }
 
-        if (!string.IsNullOrEmpty(queryParams.QueryName))
-        {
-            request["query_name"] = queryParams.QueryName;
-        }
-
-        if (!string.IsNullOrEmpty(queryParams.QueryNameVersion))
-        {
-            request["query_name_version"] = queryParams.QueryNameVersion;
-        }
+        request.AddNamedQueryFields(queryParams);
 
         return request;
     }

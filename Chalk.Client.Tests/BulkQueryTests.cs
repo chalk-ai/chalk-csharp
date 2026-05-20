@@ -3,6 +3,7 @@ using System.Text;
 using Chalk;
 using Chalk.Internal;
 using Chalk.Models;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 namespace Chalk.Client.Tests;
@@ -88,17 +89,10 @@ public class BulkQueryTests
         var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/feather");
         Assert.That(queryRequest.BodyBytes, Is.Not.Null);
 
-        // Verify "chal1" magic
-        var magic = Encoding.ASCII.GetString(queryRequest.BodyBytes!, 0, 5);
-        Assert.That(magic, Is.EqualTo("chal1"));
-
-        // Verify query_name and query_name_version are in the feather header
-        var b = queryRequest.BodyBytes!;
-        long headerLen = 0;
-        for (var i = 5; i < 13; i++) headerLen = (headerLen << 8) | b[i];
-        var featherHeader = Encoding.UTF8.GetString(b, 13, (int)headerLen);
-        Assert.That(featherHeader, Does.Contain("\"query_name\":\"bulk-test\""));
-        Assert.That(featherHeader, Does.Contain("\"query_name_version\":\"v2\""));
+        var (headerJson, _) = BinaryProtocol.ParseFeatherRequest(queryRequest.BodyBytes!);
+        var header = JObject.Parse(headerJson);
+        Assert.That((string?)header["query_name"], Is.EqualTo("bulk-test"));
+        Assert.That((string?)header["query_name_version"], Is.EqualTo("v2"));
     }
 
     [Test]

@@ -156,6 +156,28 @@ internal static class BinaryProtocol
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// Parse a Feather request produced by <see cref="BuildFeatherRequest"/>.
+    /// Returns the header JSON string and the feather bytes.
+    /// </summary>
+    public static (string headerJson, byte[] featherBytes) ParseFeatherRequest(byte[] data)
+    {
+        if (data.Length < FeatherRequestMagic.Length)
+            throw new InvalidOperationException("Feather request data too short for magic bytes");
+
+        for (var i = 0; i < FeatherRequestMagic.Length; i++)
+        {
+            if (data[i] != FeatherRequestMagic[i])
+                throw new InvalidOperationException("Invalid Feather request magic bytes");
+        }
+
+        var offset = FeatherRequestMagic.Length;
+        var headerBytes = ReadLengthPrefixed(data, ref offset);
+        var featherBytes = ReadLengthPrefixed(data, ref offset);
+
+        return (Encoding.UTF8.GetString(headerBytes), featherBytes);
+    }
+
     private static void WriteLengthPrefixed(MemoryStream ms, byte[] data)
     {
         Span<byte> lenBuf = stackalloc byte[8];

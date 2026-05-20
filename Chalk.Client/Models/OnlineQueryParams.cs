@@ -312,16 +312,22 @@ public class OnlineQueryParamsBuilder
 
     /// <summary>
     /// Build the OnlineQueryParams.
+    ///
+    /// When <see cref="OnlineQueryParams.QueryName"/> is set, inputs and outputs may be
+    /// omitted: the server resolves them from the named query definition. Otherwise
+    /// both must be provided. Note: the bulk (Feather) path still requires at least one
+    /// input at request time because the Arrow record batch needs at least one column.
     /// </summary>
     public OnlineQueryParams Build()
     {
-        if (_params.Inputs.Count == 0)
+        var hasQueryName = !string.IsNullOrEmpty(_params.QueryName);
+        if (_params.Inputs.Count == 0 && !hasQueryName)
         {
-            throw new InvalidOperationException("At least one input is required");
+            throw new InvalidOperationException("At least one input is required (or set QueryName)");
         }
-        if (_params.Outputs.Count == 0)
+        if (_params.Outputs.Count == 0 && !hasQueryName)
         {
-            throw new InvalidOperationException("At least one output is required");
+            throw new InvalidOperationException("At least one output is required (or set QueryName)");
         }
         return _params;
     }
