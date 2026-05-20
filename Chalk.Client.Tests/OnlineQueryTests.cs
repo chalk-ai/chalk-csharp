@@ -379,6 +379,63 @@ public class OnlineQueryTests
     }
 
     /// <summary>
+    /// Verifies query_name and query_name_version are sent in the request body.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_VerifiesRequestBody()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithOutputs("user.name")
+            .WithQueryName("test-query")
+            .WithQueryNameVersion("v2")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        var body = JObject.Parse(queryRequest.Body!);
+        Assert.That((string?)body["query_name"], Is.EqualTo("test-query"));
+        Assert.That((string?)body["query_name_version"], Is.EqualTo("v2"));
+    }
+
+    /// <summary>
+    /// Verifies a named-query-only build (no explicit outputs) succeeds and sends an empty
+    /// outputs array so the server resolves outputs from the named query. The server
+    /// rejects requests where the outputs key is missing entirely, so it must be present.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_QueryNameOnly_SendsEmptyOutputs()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithQueryName("named-query-only")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        var body = JObject.Parse(queryRequest.Body!);
+        Assert.That((string?)body["query_name"], Is.EqualTo("named-query-only"));
+        Assert.That(body.ContainsKey("outputs"), Is.True, "outputs key must be present so the server accepts the body");
+        Assert.That(body["outputs"]!.Type, Is.EqualTo(JTokenType.Array));
+        Assert.That(body["outputs"]!.Children().Count(), Is.EqualTo(0), "outputs should be empty so the server fills them from the named query");
+        Assert.That(body["inputs"]?["user.id"]?.Value<int>(), Is.EqualTo(1));
+    }
+
+    /// <summary>
     /// Verifies branch routing sets the correct deployment type and branch ID headers.
     /// </summary>
     [Test]

@@ -3,6 +3,7 @@ using System.Text;
 using Chalk;
 using Chalk.Internal;
 using Chalk.Models;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
 namespace Chalk.Client.Tests;
@@ -79,6 +80,8 @@ public class BulkQueryTests
         var queryParams = new OnlineQueryParamsBuilder()
             .WithInput("user.id", new List<object?> { 1, 2 })
             .WithOutputs("user.name", "user.age")
+            .WithQueryName("bulk-test")
+            .WithQueryNameVersion("v2")
             .Build();
 
         await client.OnlineQueryBulkAsync(queryParams);
@@ -86,9 +89,10 @@ public class BulkQueryTests
         var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/feather");
         Assert.That(queryRequest.BodyBytes, Is.Not.Null);
 
-        // Verify "chal1" magic
-        var magic = Encoding.ASCII.GetString(queryRequest.BodyBytes!, 0, 5);
-        Assert.That(magic, Is.EqualTo("chal1"));
+        var (headerJson, _) = BinaryProtocol.ParseFeatherRequest(queryRequest.BodyBytes!);
+        var header = JObject.Parse(headerJson);
+        Assert.That((string?)header["query_name"], Is.EqualTo("bulk-test"));
+        Assert.That((string?)header["query_name_version"], Is.EqualTo("v2"));
     }
 
     [Test]

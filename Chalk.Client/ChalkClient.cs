@@ -409,6 +409,8 @@ public class ChalkClient : IChalkClient
 
         var featherBytes = ArrowConverter.InputsToFeatherBytes(queryParams.Inputs);
 
+        // Always include outputs (even empty) — the server rejects requests where the key
+        // is absent. When QueryName is set, an empty list triggers named-query resolution.
         var header = new Dictionary<string, object>
         {
             ["outputs"] = queryParams.Outputs
@@ -465,6 +467,8 @@ public class ChalkClient : IChalkClient
         {
             header["meta"] = queryParams.Meta;
         }
+
+        header.AddNamedQueryFields(queryParams);
 
         var headerJson = JsonConvert.SerializeObject(header, JsonSettings);
         var body = BinaryProtocol.BuildFeatherRequest(headerJson, featherBytes);
@@ -555,6 +559,9 @@ public class ChalkClient : IChalkClient
             }
         }
 
+        // Always include inputs/outputs (even empty) — the server rejects requests where
+        // either key is absent. When QueryName is set, an empty outputs list triggers
+        // named-query resolution server-side.
         var request = new Dictionary<string, object>
         {
             ["inputs"] = inputs,
@@ -612,6 +619,8 @@ public class ChalkClient : IChalkClient
         {
             request["correlation_id"] = queryParams.CorrelationId;
         }
+
+        request.AddNamedQueryFields(queryParams);
 
         return request;
     }
