@@ -436,6 +436,100 @@ public class OnlineQueryTests
     }
 
     /// <summary>
+    /// Verifies a has-many schema hint is sent as a bracketed projection string keyed by the
+    /// input's fqn, while the input value itself is unchanged.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_WithInputSchemaHint_SendsProjectionString()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithInput(
+                "user.transactions",
+                (object?)new List<object?>(),
+                schema: new HasManySchema(
+                    "transaction.id",
+                    "transaction.amount"))
+            .WithOutputs("user.name")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        var body = JObject.Parse(queryRequest.Body!);
+        Assert.That(
+            (string?)body["input_schema_hint"]?["user.transactions"],
+            Is.EqualTo("user.transactions[transaction.id,transaction.amount]"));
+        Assert.That(body["inputs"]?["user.transactions"]!.Type, Is.EqualTo(JTokenType.Array));
+        Assert.That(body["inputs"]?["user.transactions"]!.Children().Count(), Is.EqualTo(0));
+    }
+
+    /// <summary>
+    /// Verifies a nested has-many column renders recursively inside its parent's projection string.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_WithNestedInputSchemaHint_RendersRecursively()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithInput(
+                "user.transactions",
+                (object?)new List<object?>(),
+                schema: new HasManySchema(
+                    "transaction.id",
+                    new HasManyColumn(
+                        "transaction.line_items",
+                        new HasManySchema("line_item.id", "line_item.sku"))))
+            .WithOutputs("user.name")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        var body = JObject.Parse(queryRequest.Body!);
+        Assert.That(
+            (string?)body["input_schema_hint"]?["user.transactions"],
+            Is.EqualTo("user.transactions[transaction.id,transaction.line_items[line_item.id,line_item.sku]]"));
+    }
+
+    /// <summary>
+    /// Verifies requests without a schema hint omit the field entirely, keeping the body
+    /// byte-identical to what older clients produce.
+    /// </summary>
+    [Test]
+    public async Task OnlineQuery_WithoutInputSchemaHint_OmitsField()
+    {
+        var handler = new MockHttpHandler();
+        handler.Enqueue(HttpMethod.Post, "/v1/oauth/token", HttpStatusCode.OK, TokenResponse());
+        handler.Enqueue(HttpMethod.Post, "/v1/query/online", HttpStatusCode.OK, QueryResponse());
+
+        using var client = CreateClient(handler);
+
+        var queryParams = new OnlineQueryParamsBuilder()
+            .WithInput("user.id", 1)
+            .WithOutputs("user.name")
+            .Build();
+
+        await client.OnlineQueryAsync(queryParams);
+
+        var queryRequest = handler.Requests.Last(r => r.Uri.AbsolutePath == "/v1/query/online");
+        var body = JObject.Parse(queryRequest.Body!);
+        Assert.That(body.ContainsKey("input_schema_hint"), Is.False);
+    }
+
+    /// <summary>
     /// Verifies branch routing sets the correct deployment type and branch ID headers.
     /// </summary>
     [Test]

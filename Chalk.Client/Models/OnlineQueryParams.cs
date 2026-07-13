@@ -11,6 +11,14 @@ public class OnlineQueryParams
     public Dictionary<string, IList<object?>> Inputs { get; set; } = new();
 
     /// <summary>
+    /// Optional schema hints for inputs whose value is type-ambiguous (e.g. an empty has-many),
+    /// keyed by input feature fqn. The server uses these to determine the intended column schema
+    /// so that, for example, an empty has-many input still plans against the projected columns.
+    /// Inputs without a hint are unaffected.
+    /// </summary>
+    public Dictionary<string, ValueSchemaHint>? InputSchemaHints { get; set; }
+
+    /// <summary>
     /// The features that you'd like to compute from the inputs.
     /// </summary>
     public List<string> Outputs { get; set; } = new();
@@ -106,19 +114,39 @@ public class OnlineQueryParamsBuilder
     /// <summary>
     /// Add an input feature with a list of values.
     /// </summary>
-    public OnlineQueryParamsBuilder WithInput(string featureFqn, IList<object?> values)
+    /// <param name="schema">
+    /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
+    /// importantly an empty has-many — so the server can plan against the intended columns.
+    /// </param>
+    public OnlineQueryParamsBuilder WithInput(string featureFqn, IList<object?> values, ValueSchemaHint? schema = null)
     {
         _params.Inputs[featureFqn] = values;
+        SetInputSchemaHint(featureFqn, schema);
         return this;
     }
 
     /// <summary>
     /// Add an input feature with a single value (for single-row queries).
     /// </summary>
-    public OnlineQueryParamsBuilder WithInput(string featureFqn, object? value)
+    /// <param name="schema">
+    /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
+    /// importantly an empty has-many — so the server can plan against the intended columns.
+    /// </param>
+    public OnlineQueryParamsBuilder WithInput(string featureFqn, object? value, ValueSchemaHint? schema = null)
     {
         _params.Inputs[featureFqn] = new List<object?> { value };
+        SetInputSchemaHint(featureFqn, schema);
         return this;
+    }
+
+    private void SetInputSchemaHint(string featureFqn, ValueSchemaHint? schema)
+    {
+        if (schema is null)
+        {
+            return;
+        }
+        _params.InputSchemaHints ??= new();
+        _params.InputSchemaHints[featureFqn] = schema;
     }
 
     /// <summary>

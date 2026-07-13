@@ -568,6 +568,12 @@ public class ChalkClient : IChalkClient
             ["outputs"] = queryParams.Outputs
         };
 
+        if (queryParams.InputSchemaHints is { Count: > 0 })
+        {
+            request["input_schema_hint"] = queryParams.InputSchemaHints.ToDictionary(
+                kv => kv.Key, kv => kv.Value.ToProjectionString(kv.Key));
+        }
+
         if (queryParams.Staleness != null)
         {
             request["staleness"] = queryParams.Staleness.ToDictionary(

@@ -565,6 +565,11 @@ public class GrpcChalkClient : IChalkClient
         {
             request["inputs"] = inputs;
         }
+        if (queryParams.InputSchemaHints is { Count: > 0 })
+        {
+            request["input_schema_hint"] = queryParams.InputSchemaHints.ToDictionary(
+                kv => kv.Key, kv => kv.Value.ToProjectionString(kv.Key));
+        }
         if (queryParams.Outputs.Count > 0)
         {
             request["outputs"] = queryParams.Outputs;
