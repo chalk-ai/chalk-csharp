@@ -112,14 +112,26 @@ public class OnlineQueryParamsBuilder
     private readonly OnlineQueryParams _params = new();
 
     /// <summary>
-    /// Add an input feature with a list of values.
+    /// Add an input feature with a list of values (one value per query row).
     /// </summary>
     /// <param name="schema">
     /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
     /// importantly an empty has-many — so the server can plan against the intended columns.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// A <paramref name="schema"/> was provided and one of <paramref name="values"/> does not
+    /// match its shape (e.g. a has-many hint on a value that is not a list of dictionary rows,
+    /// or a row carrying a column absent from the hint).
+    /// </exception>
     public OnlineQueryParamsBuilder WithInput(string featureFqn, IList<object?> values, ValueSchemaHint? schema = null)
     {
+        if (schema is not null)
+        {
+            foreach (var value in values)
+            {
+                schema.ValidateValue(featureFqn, value);
+            }
+        }
         _params.Inputs[featureFqn] = values;
         SetInputSchemaHint(featureFqn, schema);
         return this;
@@ -132,8 +144,14 @@ public class OnlineQueryParamsBuilder
     /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
     /// importantly an empty has-many — so the server can plan against the intended columns.
     /// </param>
+    /// <exception cref="ArgumentException">
+    /// A <paramref name="schema"/> was provided and <paramref name="value"/> does not match its
+    /// shape (e.g. a has-many hint on a value that is not a list of dictionary rows, or a row
+    /// carrying a column absent from the hint).
+    /// </exception>
     public OnlineQueryParamsBuilder WithInput(string featureFqn, object? value, ValueSchemaHint? schema = null)
     {
+        schema?.ValidateValue(featureFqn, value);
         _params.Inputs[featureFqn] = new List<object?> { value };
         SetInputSchemaHint(featureFqn, schema);
         return this;
