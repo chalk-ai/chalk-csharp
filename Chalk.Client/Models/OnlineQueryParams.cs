@@ -11,6 +11,14 @@ public class OnlineQueryParams
     public Dictionary<string, IList<object?>> Inputs { get; set; } = new();
 
     /// <summary>
+    /// Optional schema hints for inputs whose value is type-ambiguous (e.g. an empty has-many),
+    /// keyed by input feature fqn. The server uses these to determine the intended column schema
+    /// so that, for example, an empty has-many input still plans against the projected columns.
+    /// Inputs without a hint are unaffected.
+    /// </summary>
+    public Dictionary<string, ValueSchemaHint>? InputSchemaHints { get; set; }
+
+    /// <summary>
     /// The features that you'd like to compute from the inputs.
     /// </summary>
     public List<string> Outputs { get; set; } = new();
@@ -104,21 +112,59 @@ public class OnlineQueryParamsBuilder
     private readonly OnlineQueryParams _params = new();
 
     /// <summary>
-    /// Add an input feature with a list of values.
+    /// Add an input feature with a list of values (one value per query row).
     /// </summary>
-    public OnlineQueryParamsBuilder WithInput(string featureFqn, IList<object?> values)
+    /// <param name="schema">
+    /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
+    /// importantly an empty has-many — so the server can plan against the intended columns.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// A <paramref name="schema"/> was provided and one of <paramref name="values"/> does not
+    /// match its shape (e.g. a has-many hint on a value that is not a list of dictionary rows,
+    /// or a row carrying a column absent from the hint).
+    /// </exception>
+    public OnlineQueryParamsBuilder WithInput(string featureFqn, IList<object?> values, ValueSchemaHint? schema = null)
     {
+        if (schema is not null)
+        {
+            foreach (var value in values)
+            {
+                schema.ValidateValue(featureFqn, value);
+            }
+        }
         _params.Inputs[featureFqn] = values;
+        SetInputSchemaHint(featureFqn, schema);
         return this;
     }
 
     /// <summary>
     /// Add an input feature with a single value (for single-row queries).
     /// </summary>
-    public OnlineQueryParamsBuilder WithInput(string featureFqn, object? value)
+    /// <param name="schema">
+    /// Optional schema hint for the input value. Use this when the value is type-ambiguous — most
+    /// importantly an empty has-many — so the server can plan against the intended columns.
+    /// </param>
+    /// <exception cref="ArgumentException">
+    /// A <paramref name="schema"/> was provided and <paramref name="value"/> does not match its
+    /// shape (e.g. a has-many hint on a value that is not a list of dictionary rows, or a row
+    /// carrying a column absent from the hint).
+    /// </exception>
+    public OnlineQueryParamsBuilder WithInput(string featureFqn, object? value, ValueSchemaHint? schema = null)
     {
+        schema?.ValidateValue(featureFqn, value);
         _params.Inputs[featureFqn] = new List<object?> { value };
+        SetInputSchemaHint(featureFqn, schema);
         return this;
+    }
+
+    private void SetInputSchemaHint(string featureFqn, ValueSchemaHint? schema)
+    {
+        if (schema is null)
+        {
+            return;
+        }
+        _params.InputSchemaHints ??= new();
+        _params.InputSchemaHints[featureFqn] = schema;
     }
 
     /// <summary>
