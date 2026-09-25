@@ -21,14 +21,17 @@ public class GrpcChalkClient : IChalkClient
     private readonly SourcedConfig _apiServer;
     private readonly SourcedConfig _clientId;
     private readonly SourcedConfig _clientSecret;
-    private SourcedConfig _environmentId;
+    private volatile SourcedConfig _environmentId;
     private readonly string? _branch;
     private readonly string? _deploymentTag;
     private readonly string? _queryServerOverride;
     private readonly TimeSpan? _timeout;
 
-    private JwtToken? _jwt;
-    private Dictionary<string, string> _grpcEngines = new();
+    // Written only under _tokenLock (with _environmentId); read lock-free, so each is replaced
+    // wholesale, never mutated.
+    private readonly SemaphoreSlim _tokenLock = new(1, 1);
+    private volatile JwtToken? _jwt;
+    private volatile Dictionary<string, string> _grpcEngines = new();
 
     private static readonly JsonSerializerSettings JsonSettings = new()
     {
@@ -83,7 +86,7 @@ public class GrpcChalkClient : IChalkClient
         ValidateConfig();
 
         // Initialize by getting a token (this also gets the gRPC engine URLs)
-        RefreshJwtAsync(true, CancellationToken.None).GetAwaiter().GetResult();
+        RefreshJwtAsync(null, CancellationToken.None).GetAwaiter().GetResult();
     }
 
     private void ValidateConfig()
@@ -101,7 +104,7 @@ public class GrpcChalkClient : IChalkClient
 
     public async Task<OnlineQueryResult> OnlineQueryAsync(OnlineQueryParams queryParams, CancellationToken cancellationToken = default)
     {
-        await RefreshJwtAsync(false, cancellationToken);
+        await RefreshJwtAsync(null, cancellationToken);
 
         // For now, use HTTP endpoint. Full gRPC support requires proto compilation.
         var requestBody = BuildOnlineQueryRequest(queryParams);
@@ -128,7 +131,7 @@ public class GrpcChalkClient : IChalkClient
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            await RefreshJwtAsync(true, cancellationToken);
+            await RefreshJwtAsync(request.Headers.Authorization?.Parameter, cancellationToken);
             request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/query/online"))
             {
                 Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
@@ -158,7 +161,7 @@ public class GrpcChalkClient : IChalkClient
 
     public async Task<OfflineQueryResult> OfflineQueryAsync(OfflineQueryParams queryParams, CancellationToken cancellationToken = default)
     {
-        await RefreshJwtAsync(false, cancellationToken);
+        await RefreshJwtAsync(null, cancellationToken);
 
         var jsonBody = JsonConvert.SerializeObject(queryParams, JsonSettings);
 
@@ -173,7 +176,7 @@ public class GrpcChalkClient : IChalkClient
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            await RefreshJwtAsync(true, cancellationToken);
+            await RefreshJwtAsync(request.Headers.Authorization?.Parameter, cancellationToken);
             request = new HttpRequestMessage(HttpMethod.Post, GetApiServerUri("/v4/offline_query"))
             {
                 Content = new StringContent(jsonBody, Encoding.UTF8, "application/json")
@@ -205,7 +208,7 @@ public class GrpcChalkClient : IChalkClient
 
     public async Task<OfflineQueryStatusResult> GetOfflineQueryStatusAsync(string revisionId, CancellationToken cancellationToken = default)
     {
-        await RefreshJwtAsync(false, cancellationToken);
+        await RefreshJwtAsync(null, cancellationToken);
 
         var request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v4/offline_query/{revisionId}/status"));
         AddHeaders(request);
@@ -214,7 +217,7 @@ public class GrpcChalkClient : IChalkClient
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            await RefreshJwtAsync(true, cancellationToken);
+            await RefreshJwtAsync(request.Headers.Authorization?.Parameter, cancellationToken);
             request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v4/offline_query/{revisionId}/status"));
             AddHeaders(request);
             response = await _httpClient.SendAsync(request, cancellationToken);
@@ -296,7 +299,7 @@ public class GrpcChalkClient : IChalkClient
                 throw new ClientException($"Timed out waiting for offline query download URLs for {revisionId}");
             }
 
-            await RefreshJwtAsync(false, cancellationToken);
+            await RefreshJwtAsync(null, cancellationToken);
 
             var request = new HttpRequestMessage(HttpMethod.Get, GetApiServerUri($"/v2/offline_query/{revisionId}"));
             AddHeaders(request);
@@ -335,7 +338,7 @@ public class GrpcChalkClient : IChalkClient
             throw new ClientException("Inputs must not be empty for upload_features");
         }
 
-        await RefreshJwtAsync(false, cancellationToken);
+        await RefreshJwtAsync(null, cancellationToken);
 
         var featherBytes = ArrowConverter.InputsToFeatherBytes(inputs);
         var columns = inputs.Keys.ToList();
@@ -354,7 +357,7 @@ public class GrpcChalkClient : IChalkClient
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            await RefreshJwtAsync(true, cancellationToken);
+            await RefreshJwtAsync(request.Headers.Authorization?.Parameter, cancellationToken);
             request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/upload_features/multi"))
             {
                 Content = new ByteArrayContent(body)
@@ -386,7 +389,7 @@ public class GrpcChalkClient : IChalkClient
 
     public async Task<BulkQueryResult> OnlineQueryBulkAsync(OnlineQueryParams queryParams, CancellationToken cancellationToken = default)
     {
-        await RefreshJwtAsync(false, cancellationToken);
+        await RefreshJwtAsync(null, cancellationToken);
 
         var featherBytes = ArrowConverter.InputsToFeatherBytes(queryParams.Inputs);
 
@@ -476,7 +479,7 @@ public class GrpcChalkClient : IChalkClient
 
         if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
         {
-            await RefreshJwtAsync(true, cancellationToken);
+            await RefreshJwtAsync(request.Headers.Authorization?.Parameter, cancellationToken);
             request = new HttpRequestMessage(HttpMethod.Post, GetQueryUri("/v1/query/feather"))
             {
                 Content = new ByteArrayContent(body)
@@ -743,13 +746,41 @@ public class GrpcChalkClient : IChalkClient
     // Token management
     // ----------------------------------------------------------------
 
-    private async Task RefreshJwtAsync(bool force, CancellationToken cancellationToken)
+    /// <summary>
+    /// Ensure a usable token is cached. With <paramref name="rejectedToken"/> null, refresh only
+    /// when no token is cached or it has expired; otherwise also refresh when the cached token is
+    /// the one the server rejected. Refreshes are serialized, so concurrent callers that hit an
+    /// expired token or a 401 at the same time share a single token exchange.
+    /// </summary>
+    private async Task RefreshJwtAsync(string? rejectedToken, CancellationToken cancellationToken)
     {
-        if (!force && _jwt != null && !_jwt.IsExpired)
+        if (rejectedToken == null && IsUsable(_jwt, null))
         {
             return;
         }
 
+        await _tokenLock.WaitAsync(cancellationToken);
+        try
+        {
+            // Another caller may have refreshed while this one waited for the lock.
+            if (IsUsable(_jwt, rejectedToken))
+            {
+                return;
+            }
+
+            await ExchangeTokenAsync(cancellationToken);
+        }
+        finally
+        {
+            _tokenLock.Release();
+        }
+    }
+
+    private static bool IsUsable(JwtToken? jwt, string? rejectedToken) =>
+        jwt != null && !jwt.IsExpired && jwt.Value != rejectedToken;
+
+    private async Task ExchangeTokenAsync(CancellationToken cancellationToken)
+    {
         var tokenRequest = new GetTokenRequest
         {
             ClientId = _clientId.Value,
@@ -779,10 +810,6 @@ public class GrpcChalkClient : IChalkClient
             throw new ClientException("Failed to parse token response");
         }
 
-        var expiry = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
-        _jwt = new JwtToken(tokenResponse.AccessToken, expiry);
-
-        // Update gRPC engines map
         if (tokenResponse.GrpcEngines != null)
         {
             _grpcEngines = new Dictionary<string, string>(tokenResponse.GrpcEngines);
@@ -793,6 +820,10 @@ public class GrpcChalkClient : IChalkClient
         {
             _environmentId = new SourcedConfig(tokenResponse.PrimaryEnvironment, "token response (primary_environment)");
         }
+
+        // Publish the token last so a caller that observes it also observes the fields above.
+        var expiry = DateTimeOffset.UtcNow.AddSeconds(tokenResponse.ExpiresIn);
+        _jwt = new JwtToken(tokenResponse.AccessToken, expiry);
     }
 
     // ----------------------------------------------------------------
@@ -907,6 +938,7 @@ public class GrpcChalkClient : IChalkClient
         {
             _httpClient.Dispose();
         }
+        _tokenLock.Dispose();
     }
 }
 
